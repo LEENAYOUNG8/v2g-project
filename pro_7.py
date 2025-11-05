@@ -106,7 +106,7 @@ def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
         "v2g_revenues": v2g_revenues,
         "om_costs": om_costs,
         "capex_list": capex_list,
-        # 탄소계산용
+        # 탄소계산용 kWh
         "annual_pv_surplus_kwh": annual_pv_surplus_kwh,
         "annual_v2g_kwh": annual_v2g_kwh,
     }
@@ -194,19 +194,41 @@ def main():
     total_clean_kwh = clean_kwh_per_year * num_years
     total_co2_kg = total_clean_kwh * EMISSION_FACTOR_KG_PER_KWH  # kgCO2e
 
-    # ===== KPI (왼쪽으로 몰기 위해 4칸) =====
+    # ===== KPI (커스텀 텍스트, 4칸으로 왼쪽 몰기) =====
     col1, col2, col3, col_spacer = st.columns([1, 1, 1, 0.5])
 
-    if break_even_year is not None:
-        col1.metric("손익분기 연도", f"{break_even_year}년")
-    else:
-        col1.metric("손익분기 연도", "아직 미도달")
+    # 1) 손익분기 연도
+    with col1:
+        be_text = f"{break_even_year}년" if break_even_year else "아직 미도달"
+        st.markdown(
+            f"""
+            <div style="font-size:0.85rem; color:#666;">손익분기 연도</div>
+            <div style="font-size:1.3rem; font-weight:600;">{be_text}</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    val_str = "{:,.0f}".format(cumulative[-1])
-    col2.metric("마지막 연도 누적", f"{val_str} 원")
+    # 2) 마지막 연도 누적
+    with col2:
+        last_val = "{:,.0f}".format(cumulative[-1])
+        st.markdown(
+            f"""
+            <div style="font-size:0.85rem; color:#666;">마지막 연도 누적</div>
+            <div style="font-size:1.3rem; font-weight:600;">{last_val} 원</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    col3.metric("누적 탄소절감량", f"{total_co2_kg:,.0f} kgCO₂e")
-    # col_spacer는 비워둠
+    # 3) 누적 탄소절감량
+    with col3:
+        co2_val = "{:,.0f}".format(total_co2_kg)
+        st.markdown(
+            f"""
+            <div style="font-size:0.85rem; color:#666;">누적 탄소절감량</div>
+            <div style="font-size:1.3rem; font-weight:600;">{co2_val} kgCO₂e</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # ===== 1) 누적 현금흐름 (matplotlib) =====
     st.subheader("누적 현금흐름")
