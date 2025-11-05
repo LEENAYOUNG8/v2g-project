@@ -21,6 +21,7 @@ def set_korean_font():
     else:
         plt.rcParams["axes.unicode_minus"] = False
 
+
 set_korean_font()
 # =========================
 
@@ -210,27 +211,29 @@ def main():
         )
     st.pyplot(fig)
 
-    # ===== 2) 연도별 순현금흐름 (막대) =====
-    st.subheader("연도별 순현금흐름")
+    # ===== 2) 연도별 순현금흐름 (누적 워터폴) =====
+    st.subheader("연도별 순현금흐름 (누적)")
+
     x_labels = [f"{y}년" for y in years]
 
-    # 색깔: 첫해(혹은 음수)는 빨강, 나머지 플러스는 파랑
-    colors = ["red" if v < 0 else "royalblue" for v in yearly_cash]
-
-    bar_fig = go.Figure(
-        data=[
-            go.Bar(
-                x=x_labels,
-                y=yearly_cash,
-                marker_color=colors,
-            )
-        ]
+    wf = go.Figure(
+        go.Waterfall(
+            name="누적 현금흐름",
+            orientation="v",
+            x=x_labels,
+            measure=["absolute"] * len(years),  # 누적 값을 그대로 높이로
+            y=cumulative,
+            text=[f"{v:,.0f}원" for v in cumulative],
+            textposition="outside",
+            decreasing={"marker": {"color": "red"}},
+            increasing={"marker": {"color": "royalblue"}},
+        )
     )
 
     # 손익분기 연도 세로선
     if break_even_year is not None:
         be_label = f"{break_even_year}년"
-        bar_fig.add_shape(
+        wf.add_shape(
             type="line",
             x0=be_label,
             x1=be_label,
@@ -240,7 +243,7 @@ def main():
             yref="paper",
             line=dict(color="green", width=2, dash="dash"),
         )
-        bar_fig.add_annotation(
+        wf.add_annotation(
             x=be_label,
             y=1,
             xref="x",
@@ -251,12 +254,11 @@ def main():
             font=dict(color="green"),
         )
 
-    bar_fig.update_layout(
-        title="연도별 순현금흐름",
+    wf.update_layout(
+        title="연도별 순현금흐름 (누적 형태)",
         yaxis=dict(tickformat=","),
-        bargap=0.3,
     )
-    st.plotly_chart(bar_fig, use_container_width=True)
+    st.plotly_chart(wf, use_container_width=True)
 
     # ===== 표 =====
     st.subheader("연도별 금액 확인")
