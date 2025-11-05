@@ -7,7 +7,8 @@ import plotly.graph_objects as go
 import pandas as pd
 
 # kWh 당 탄소배출계수 (kg CO2e/kWh)
-EMISSION_FACTOR_KG_PER_KWH = 0.495  # 네가 준 값
+EMISSION_FACTOR_KG_PER_KWH = 0.495  # 국내 전력 생산 1kWh당 약 0.495kgCO2e
+
 
 # =========================
 # 1. 한글 폰트: repo에 올려둔 NanumGothic.ttf 강제 사용
@@ -22,6 +23,7 @@ def set_korean_font():
         plt.rcParams["axes.unicode_minus"] = False
     else:
         plt.rcParams["axes.unicode_minus"] = False
+
 
 set_korean_font()
 # =========================
@@ -104,7 +106,7 @@ def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
         "v2g_revenues": v2g_revenues,
         "om_costs": om_costs,
         "capex_list": capex_list,
-        # 👇 탄소계산용으로 연간 kWh도 같이 리턴
+        # 탄소 계산용
         "annual_pv_surplus_kwh": annual_pv_surplus_kwh,
         "annual_v2g_kwh": annual_v2g_kwh,
     }
@@ -184,17 +186,14 @@ def main():
             break_even_year = y
             break
 
-    # ===== 탄소절감량 계산 =====
-    # 1년당 대체한 kWh = 남는 PV + V2G 방전
+    # ===== 탄소절감량 계산 (kgCO2e) =====
+    # 1년당 대체한 kWh = PV 잉여 + V2G 방전
     clean_kwh_per_year = (
         cf_data["annual_pv_surplus_kwh"] + cf_data["annual_v2g_kwh"]
     )
     num_years = len(years)
     total_clean_kwh = clean_kwh_per_year * num_years
-    # kg CO2e
-    total_co2_kg = total_clean_kwh * EMISSION_FACTOR_KG_PER_KWH
-    # ton CO2e
-    total_co2_ton = total_co2_kg / 1000.0
+    total_co2_kg = total_clean_kwh * EMISSION_FACTOR_KG_PER_KWH  # kgCO2e
 
     # ===== KPI =====
     col1, col2, col3 = st.columns(3)
@@ -206,8 +205,8 @@ def main():
     val_str = "{:,.0f}".format(cumulative[-1])
     col2.metric("마지막 연도 누적", f"{val_str} 원")
 
-    # 탄소절감은 tCO2e로 1자리만
-    col3.metric("누적 탄소절감량", f"{total_co2_ton:,.1f} tCO₂e")
+    # kgCO2e로 표시
+    col3.metric("누적 탄소절감량", f"{total_co2_kg:,.0f} kgCO₂e")
 
     # ===== 1) 누적 현금흐름 (matplotlib) =====
     st.subheader("누적 현금흐름")
@@ -289,7 +288,6 @@ def main():
             "V2G 수입(원)": cf_data["v2g_revenues"],
             "O&M 비용(원)": cf_data["om_costs"],
             "CAPEX(원)": cf_data["capex_list"],
-            # 참고용으로 연간 에너지도 보여줄 수 있음
             "연간 PV 잉여(kWh)": [cf_data["annual_pv_surplus_kwh"]] * len(years),
             "연간 V2G 방전(kWh)": [cf_data["annual_v2g_kwh"]] * len(years),
         }
