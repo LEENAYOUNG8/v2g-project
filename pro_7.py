@@ -10,6 +10,9 @@ import pandas as pd
 EMISSION_FACTOR_KG_PER_KWH = 0.495  # 국내 전력 생산 1kWh당 약 0.495kgCO2e
 
 
+# =========================
+# 1. 한글 폰트: repo에 올려둔 NanumGothic.ttf 강제 사용
+# =========================
 def set_korean_font():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     font_path = os.path.join(base_dir, "NanumGothic.ttf")
@@ -23,6 +26,7 @@ def set_korean_font():
 
 
 set_korean_font()
+# =========================
 
 
 def price_with_cagr(base_price, base_year, year, cagr):
@@ -48,14 +52,17 @@ def make_v2g_model_params():
 
 
 def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
+    # PV
     annual_pv_kwh = p["pv_annual_kwh"]
     annual_pv_surplus_kwh = annual_pv_kwh * (1 - p["self_use_ratio"])
 
+    # V2G (연간 실제 방전량)
     daily_v2g_kwh = p["num_v2g_chargers"] * p["v2g_daily_discharge_per_charger_kwh"]
     annual_v2g_kwh = (
         daily_v2g_kwh * p["v2g_operating_days"] * p["degradation_factor"]
     )
 
+    # CAPEX / O&M
     capex_total = p["num_v2g_chargers"] * p["v2g_charger_unit_cost"]
     annual_om_cost = capex_total * p["om_ratio"]
 
@@ -99,6 +106,7 @@ def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
         "v2g_revenues": v2g_revenues,
         "om_costs": om_costs,
         "capex_list": capex_list,
+        # 탄소계산용
         "annual_pv_surplus_kwh": annual_pv_surplus_kwh,
         "annual_v2g_kwh": annual_v2g_kwh,
     }
@@ -113,7 +121,7 @@ def main():
 
     params = make_v2g_model_params()
 
-    # ===== 사이드바 =====
+    # ===== 사이드바 입력 =====
     st.sidebar.header("시뮬레이션 입력")
     install_year = st.sidebar.number_input("설치 연도", value=2025, step=1)
     current_year = st.sidebar.number_input(
@@ -171,23 +179,23 @@ def main():
     yearly_cash = cf_data["yearly_cash"]
     cumulative = cf_data["cumulative"]
 
-    # 손익분기 연도
+    # 손익분기 연도 찾기
     break_even_year = None
     for y, cum_val in zip(years, cumulative):
         if cum_val >= 0:
             break_even_year = y
             break
 
-    # ===== 탄소절감량 계산 (kg) =====
+    # ===== 탄소절감량 계산 (kgCO2e) =====
     clean_kwh_per_year = (
         cf_data["annual_pv_surplus_kwh"] + cf_data["annual_v2g_kwh"]
     )
     num_years = len(years)
     total_clean_kwh = clean_kwh_per_year * num_years
-    total_co2_kg = total_clean_kwh * EMISSION_FACTOR_KG_PER_KWH
+    total_co2_kg = total_clean_kwh * EMISSION_FACTOR_KG_PER_KWH  # kgCO2e
 
-    # ===== KPI =====
-    col1, col2, col3 = st.columns([1, 1, 0.6])  # ← 여기만 바뀜
+    # ===== KPI (왼쪽으로 몰기 위해 4칸) =====
+    col1, col2, col3, col_spacer = st.columns([1, 1, 1, 3])
 
     if break_even_year is not None:
         col1.metric("손익분기 연도", f"{break_even_year}년")
@@ -198,8 +206,9 @@ def main():
     col2.metric("마지막 연도 누적", f"{val_str} 원")
 
     col3.metric("누적 탄소절감량", f"{total_co2_kg:,.0f} kgCO₂e")
+    # col_spacer는 비워둠
 
-    # ===== 누적 현금흐름 =====
+    # ===== 1) 누적 현금흐름 (matplotlib) =====
     st.subheader("누적 현금흐름")
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(years, cumulative, marker="o", linewidth=2.2)
@@ -220,7 +229,7 @@ def main():
         )
     st.pyplot(fig)
 
-    # ===== 누적 막대 =====
+    # ===== 2) 연도별 순현금흐름 (누적 막대) =====
     st.subheader("연도별 순현금흐름 (누적)")
     x_labels = [f"{y}년" for y in years]
     colors = ["red" if cum < 0 else "royalblue" for cum in cumulative]
