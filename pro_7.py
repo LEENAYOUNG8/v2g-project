@@ -183,7 +183,7 @@ def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
 # 5) Streamlit App
 # =========================
 def main():
-    st.title("V2G + PV 경제성 분석 (현금흐름 · NPV · IRR · 할인 회수기간)")
+    st.title("V2G 투자 대비 연도별/누적 현금흐름")
 
     params = make_v2g_model_params()
 
