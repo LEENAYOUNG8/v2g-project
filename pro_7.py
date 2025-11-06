@@ -6,8 +6,6 @@ import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from pvlib import location
-from pvlib import irradiance, atmosphere, pvsystem, temperature
 
 # -----------------------------
 # 상수: kWh당 탄소배출계수 (kg CO2e/kWh)
@@ -31,86 +29,6 @@ set_korean_font()
 # =========================
 # 2) 유틸/지표 계산 함수
 # =========================
-def generate_hourly_pv_kwh_from_jeju_csv(file_obj, pv_kw=125):
-    df = pd.read_csv(file_obj)
-
-    # ✅ 1) 컬럼 공백 제거 + BOM 제거
-    df.columns = df.columns.str.strip().str.replace("\ufeff", "", regex=False)
-
-    # ✅ 2) 일시 컬럼 자동 탐색
-    possible_time_cols = ["일시", "일시(UTC)", "date", "시간", "timestamp"]
-    time_col = None
-    for col in df.columns:
-        if col in possible_time_cols:
-            time_col = col
-            break
-
-    if time_col is None:
-        raise KeyError(f"CSV에서 일시 컬럼을 찾지 못했습니다. 실제 컬럼: {df.columns.tolist()}")
-
-    df[time_col] = pd.to_datetime(df[time_col])
-
-    # ✅ 3) 일사합(MJ/m2) 컬럼 자동 탐색
-    possible_irr_cols = ["일사합(MJ/m2)", "일사합", "GHI", "Irradiance", "일사"]
-    irr_col = None
-    for col in df.columns:
-        if col in possible_irr_cols:
-            irr_col = col
-            break
-
-    if irr_col is None:
-        raise KeyError(f"CSV에서 일사합(irradiance) 컬럼을 찾지 못했습니다. 실제 컬럼: {df.columns.tolist()}")
-
-    # ✅ 4) MJ/m2 → kWh/m2 변환
-    df["irr_kwh_m2"] = df[irr_col] * 0.2777778  # 1 MJ = 0.27778 kWh
-
-    # ✅ 5) 패널 용량 × 효율 가정해서 실제 발전량 계산
-    performance_ratio = 0.75
-    df["pv_kwh"] = df["irr_kwh_m2"] * pv_kw * performance_ratio
-
-    # ✅ 6) 시간순 정렬 & set_index
-    df = df.sort_values(time_col)
-    df = df.set_index(time_col)
-
-    return df["pv_kwh"]
-
-    # GHI 일별값을 시간별로 재분배(가중: 일사곡선 기반)
-    def distribute_daily_to_hourly(day, ghi_day):
-        mask = (hourly_index.date == day.date())
-        hours = hourly_index[mask]
-        pos = solpos[mask]
-        zen = pos['zenith']
-        # 낮 시간만 양수
-        w = np.clip(np.cos(np.radians(zen)), 0, None)
-        if w.sum() == 0:
-            return pd.Series(np.zeros(len(hours)), index=hours)
-        return pd.Series(ghi_day * (w / w.sum()), index=hours)
-
-    hourly_ghi = pd.concat(
-        [distribute_daily_to_hourly(day, ghi_day) for day, ghi_day in daily_ghi.items()]
-    )
-
-    # PVlib 입력 위한 POA 변환
-    poa = irradiance.get_total_irradiance(
-        surface_tilt=25,
-        surface_azimuth=180,
-        dni=None,
-        ghi=hourly_ghi,
-        dhi=None,
-        solar_zenith=solpos['zenith'].reindex(hourly_ghi.index),
-        solar_azimuth=solpos['azimuth'].reindex(hourly_ghi.index)
-    )["poa_global"]
-
-    # PV 성능 파라미터
-    temp_cell = temperature.sapm_cell(poa, temp_air=25, wind_speed=1)
-    effective_irr = poa
-
-    # 모듈 성능 모델 (단순화)
-    pv_power_w = pv_kw * 1000 * (effective_irr / 1000)  # 1sun = 1000W/m2
-    pv_power_kwh = (pv_power_w / 1000)
-
-    return pv_power_kwh
-
 def price_with_cagr(base_price, base_year, year, cagr):
     """기준연도 대비 연복리(cagr) 상승 단가"""
     return base_price * (1 + cagr) ** (year - base_year)
@@ -264,26 +182,13 @@ def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
 # =========================
 # 5) Streamlit App
 # =========================
-
 def main():
     st.title("V2G 투자 대비 연도별/누적 현금흐름")
+
     params = make_v2g_model_params()
 
-    # 1) 업로드 필수
-    uploaded = st.sidebar.file_uploader("./jeju.csv", type=["csv"])
-    if uploaded is None:
-        st.warning("./jeju.csv")
-        print('brian')
-        return
-
-    # 2) PVlib 변환 → 연간 kWh 반영
-    hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(uploaded, pv_kw=params["pv_capacity_kw"])
-    params["pv_annual_kwh"] = hourly_pv.sum()
-
-    # 3) 사이드바 입력 (중복/경로 사용 없이 한 번만)
+    # ----- 사이드바 입력 -----
     st.sidebar.header("시뮬레이션 입력")
-    st.sidebar.success(f"PVlib 기반 연간 발전량 계산됨: {params['pv_annual_kwh']:,.0f} kWh")
-
     install_year = st.sidebar.number_input("설치 연도", value=2025, step=1)
     current_year = st.sidebar.number_input("마지막 연도", value=2045, step=1, min_value=install_year)
 
@@ -299,9 +204,10 @@ def main():
     params["pv_base_price"] = st.sidebar.number_input("PV 기준단가 (원/kWh)", value=params["pv_base_price"], step=5, min_value=0)
     params["price_cagr"] = st.sidebar.number_input("전력단가 연평균 상승률", value=params["price_cagr"], step=0.001, format="%.3f")
 
-    # 4) 할인율
-    discount_rate = st.sidebar.number_input("할인율(연)", value=0.08, min_value=0.0, max_value=0.5, step=0.005, format="%.3f")
-
+    # ★ 재무 지표용 할인율
+    discount_rate = st.sidebar.number_input(
+        "할인율(연)", value=0.08, min_value=0.0, max_value=0.5, step=0.005, format="%.3f", help="NPV/할인회수기간 계산에 사용"
+    )
 
     # ----- 계산 -----
     cf = build_yearly_cashflows(install_year, current_year, params)
