@@ -273,6 +273,7 @@ def main():
     uploaded = st.sidebar.file_uploader("./jeju.csv", type=["csv"])
     if uploaded is None:
         st.warning("./jeju.csv")
+            return
 
     # 2) PVlib 변환 → 연간 kWh 반영
     hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(uploaded, pv_kw=params["pv_capacity_kw"])
