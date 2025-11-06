@@ -247,6 +247,11 @@ def main():
     st.title("V2G 투자 대비 연도별/누적 현금흐름")
 
     params = make_v2g_model_params()
+    uploaded = st.sidebar.file_uploader("jeju.csv 업로드", type=["csv"])
+    if uploaded is not None:
+        hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(uploaded, pv_kw=params["pv_capacity_kw"])
+        params["pv_annual_kwh"] = hourly_pv.sum()
+        st.sidebar.success(f"PVlib 기반 연간 발전량 계산됨: {hourly_pv.sum():,.0f} kWh")
 
     # ----- 사이드바 입력 -----
     st.sidebar.header("시뮬레이션 입력")
