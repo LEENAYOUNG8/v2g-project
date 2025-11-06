@@ -267,61 +267,40 @@ def build_yearly_cashflows(install_year: int, current_year: int, p: dict):
 
 def main():
     st.title("V2G 투자 대비 연도별/누적 현금흐름")
-
     params = make_v2g_model_params()
 
-    # ----- PV 데이터 업로드 -----
+    # 1) 업로드 필수
     uploaded = st.sidebar.file_uploader("jeju.csv 업로드", type=["csv"])
-
     if uploaded is None:
         st.warning("jeju.csv 파일을 업로드해주세요.")
-        return   # ✅ 이 return은 반드시 main() 내부여야 함.
+        return
 
-    # ✅ 업로드된 파일 읽기
-    hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(
-        uploaded, pv_kw=params["pv_capacity_kw"]
-    )
+    # 2) PVlib 변환 → 연간 kWh 반영
+    hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(uploaded, pv_kw=params["pv_capacity_kw"])
     params["pv_annual_kwh"] = hourly_pv.sum()
 
-
-
-
-
-
-    # ----- 사이드바 입력 -----
+    # 3) 사이드바 입력 (중복/경로 사용 없이 한 번만)
     st.sidebar.header("시뮬레이션 입력")
-    # ----- PVlib 기반 시간별 발전량 업로드 -----
-    csv_path = ".devcontainer/jeju.csv"  # 또는 GitHub RAW URL
-    hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(csv_path, pv_kw=params["pv_capacity_kw"])
-    params["pv_annual_kwh"] = hourly_pv.sum()
+    st.sidebar.success(f"PVlib 기반 연간 발전량 계산됨: {params['pv_annual_kwh']:,.0f} kWh")
 
+    install_year = st.sidebar.number_input("설치 연도", value=2025, step=1)
+    current_year = st.sidebar.number_input("마지막 연도", value=2045, step=1, min_value=install_year)
 
-    if uploaded is not None:
-        hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(uploaded, pv_kw=params["pv_capacity_kw"])
-        annual_pv_from_pvlib = hourly_pv.sum()
-
-        st.sidebar.success(f"PVlib 기반 연간 발전량 계산됨: {annual_pv_from_pvlib:,.0f} kWh")
-        params["pv_annual_kwh"] = annual_pv_from_pvlib
-
-        install_year = st.sidebar.number_input("설치 연도", value=2025, step=1)
-        current_year = st.sidebar.number_input("마지막 연도", value=2045, step=1, min_value=install_year)
-
-        params["num_v2g_chargers"] = st.sidebar.number_input("V2G 충전기 대수", value=params["num_v2g_chargers"], step=1, min_value=1)
-        params["v2g_daily_discharge_per_charger_kwh"] = st.sidebar.number_input(
-            "1대당 일일 방전량 (kWh)", value=params["v2g_daily_discharge_per_charger_kwh"], step=1, min_value=1
-        )
-        params["v2g_operating_days"] = st.sidebar.number_input(
-            "연간 운영일 수", value=params["v2g_operating_days"], step=10, min_value=1, max_value=365
-        )
-        params["pv_annual_kwh"] = st.sidebar.number_input("연간 PV 발전량 (kWh)", value=params["pv_annual_kwh"], step=1000, min_value=0)
-        params["self_use_ratio"] = st.sidebar.slider("PV 자가소비 비율", min_value=0.0, max_value=1.0, value=params["self_use_ratio"], step=0.05)
-        params["pv_base_price"] = st.sidebar.number_input("PV 기준단가 (원/kWh)", value=params["pv_base_price"], step=5, min_value=0)
-        params["price_cagr"] = st.sidebar.number_input("전력단가 연평균 상승률", value=params["price_cagr"], step=0.001, format="%.3f")
-
-    # ★ 재무 지표용 할인율
-    discount_rate = st.sidebar.number_input(
-        "할인율(연)", value=0.08, min_value=0.0, max_value=0.5, step=0.005, format="%.3f", help="NPV/할인회수기간 계산에 사용"
+    params["num_v2g_chargers"] = st.sidebar.number_input("V2G 충전기 대수", value=params["num_v2g_chargers"], step=1, min_value=1)
+    params["v2g_daily_discharge_per_charger_kwh"] = st.sidebar.number_input(
+        "1대당 일일 방전량 (kWh)", value=params["v2g_daily_discharge_per_charger_kwh"], step=1, min_value=1
     )
+    params["v2g_operating_days"] = st.sidebar.number_input(
+        "연간 운영일 수", value=params["v2g_operating_days"], step=10, min_value=1, max_value=365
+    )
+    params["pv_annual_kwh"] = st.sidebar.number_input("연간 PV 발전량 (kWh)", value=params["pv_annual_kwh"], step=1000, min_value=0)
+    params["self_use_ratio"] = st.sidebar.slider("PV 자가소비 비율", min_value=0.0, max_value=1.0, value=params["self_use_ratio"], step=0.05)
+    params["pv_base_price"] = st.sidebar.number_input("PV 기준단가 (원/kWh)", value=params["pv_base_price"], step=5, min_value=0)
+    params["price_cagr"] = st.sidebar.number_input("전력단가 연평균 상승률", value=params["price_cagr"], step=0.001, format="%.3f")
+
+    # 4) 할인율
+    discount_rate = st.sidebar.number_input("할인율(연)", value=0.08, min_value=0.0, max_value=0.5, step=0.005, format="%.3f")
+
 
     # ----- 계산 -----
     cf = build_yearly_cashflows(install_year, current_year, params)
