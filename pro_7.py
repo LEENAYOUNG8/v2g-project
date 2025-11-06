@@ -271,14 +271,16 @@ def main():
     params = make_v2g_model_params()
 
     # ✅ jeju.csv 업로드 처리
-    uploaded = st.sidebar.file_uploader("제주 jeju.csv 업로드", type=["csv"])
+    uploaded = st.sidebar.file_uploader("jeju.csv 업로드", type=["csv"])
 
-    if uploaded is not None:
-        hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(
-            uploaded, pv_kw=params["pv_capacity_kw"]
-        )
-        params["pv_annual_kwh"] = hourly_pv.sum()
-        st.sidebar.success(f"연간 PV 발전량: {hourly_pv.sum():,.0f} kWh")
+if uploaded is not None:
+    hourly_pv = generate_hourly_pv_kwh_from_jeju_csv(
+        uploaded, pv_kw=params["pv_capacity_kw"]
+    )
+else:
+    st.warning("jeju.csv 파일을 업로드해주세요.")
+    return
+
 
 
 
