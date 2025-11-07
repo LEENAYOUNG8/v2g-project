@@ -155,7 +155,68 @@ def compute_pv_kwh_by_year(irr_df: pd.DataFrame,
     return out, area_m2, PR
 
 # =========================
-# 4) 기본 파라미터
+# 4) CSV 범위 밖 연도 처리 전략
+# =========================
+def make_pv_forecaster_from_series(pv_by_year: dict, strategy: str = "trend"):
+    """
+    strategy:
+      - 'clamp' : 경계값 고정(보수적)
+      - 'trend' : 선형 추세 외삽 (1차 회귀)
+      - 'mean5' : 최근 5년 평균 값 사용
+      - 'repeat': CSV 구간을 주기로 반복
+    반환: f(year: int) -> pv_kwh(float)
+    """
+    years = np.array(sorted(pv_by_year.keys()), dtype=int)
+    values = np.array([pv_by_year[y] for y in years], dtype=float)
+    y_min, y_max = years.min(), years.max()
+
+    if strategy == "clamp":
+        def f(y):
+            y = int(y)
+            if y <= y_min: return float(values[0])
+            if y >= y_max: return float(values[-1])
+            return float(pv_by_year[y])
+        return f
+
+    if strategy == "mean5":
+        last5 = values[-5:] if len(values) >= 5 else values
+        m5 = float(last5.mean())
+        def f(y):
+            y = int(y)
+            if y_min <= y <= y_max: return float(pv_by_year[y])
+            return m5
+        return f
+
+    if strategy == "repeat":
+        seq = values.copy()
+        L = len(seq)
+        def f(y):
+            y = int(y)
+            if y_min <= y <= y_max:
+                return float(pv_by_year[y])
+            # 바깥 연도는 길이 L의 주기로 반복
+            if y < y_min:
+                idx = (y - y_min) % L
+                return float(seq[idx])
+            else:
+                idx = (y - y_min) % L
+                return float(seq[idx])
+        return f
+
+    # default: 'trend' — 1차 선형회귀로 외삽
+    coeff = np.polyfit(years.astype(float), values, deg=1)  # slope, intercept
+    slope, intercept = coeff[0], coeff[1]
+    def f(y):
+        y = int(y)
+        if y_min <= y <= y_max:
+            return float(pv_by_year[y])
+        # 선형 추세 예측 (음수 방지)
+        pred = slope * y + intercept
+        return float(max(0.0, pred))
+    return f
+
+# =========================
+# 5) 기본 파라미터
 # =========================
 def make_v2g_model_params():
     return {
@@ -171,27 +232,27 @@ def make_v2g_model_params():
 
         # V2G 운영 정책(연동 파라미터)
         "v2g_share_of_pv_surplus": 0.5,    # PV 잉여 중 V2G로 활용 비율 γ
-        "v2g_yearly_degradation": 0.0,     # 연차별 V2G 성능저하율(선택)
+        "v2g_yearly_degradation": 0.0,     # 연차별 V2G 성능저하율
 
         # 단가(연복리 상승)
         "tariff_base_year": 2025,
         "pv_base_price": 160,              # 원/kWh
         "v2g_price_gap": 30,
-        "price_cagr": 0.043,
+        "price_cagr": 0.0,                 # 테스트를 위해 기본 0으로 둬도 됨
 
         # O&M
         "om_ratio": 0.015,
     }
 
 # =========================
-# 5) 현금흐름 빌드 (CSV 기반 PV) — ★연도별 V2G 가변화 반영★
+# 6) 현금흐름 빌드 (CSV 기반 PV) — 연도별 V2G 가변화
 # =========================
 def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dict,
-                                    pv_kwh_by_year: dict):
+                                    pv_value_fn):
     """
+    pv_value_fn(year) → 해당 연도의 PV 연간 kWh (외삽 전략 반영)
     - 연도별 PV 잉여전력에 비례해 V2G 방전량을 산정하되,
       장비 스펙이 허용하는 '목표치'를 상한으로 캡.
-    - 기간 밖 연도는 CSV 경계값(최소/최대)을 보수적으로 사용.
     """
     # 장비 스펙 기반 '기본 목표치'(연간): 변하지 않는 상한(연차별 성능저하는 아래에서 적용)
     base_target_v2g_kwh = (
@@ -212,25 +273,20 @@ def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dic
     yearly_cash, cumulative = [], []
     pv_revenues, v2g_revenues, om_costs, capex_list = [], [], [], []
 
-    if len(pv_kwh_by_year) == 0:
-        raise ValueError("CSV에서 계산된 PV 연간 발전량이 없습니다.")
-    min_y, max_y = min(pv_kwh_by_year.keys()), max(pv_kwh_by_year.keys())
-
     cum = 0.0
     for i, year in enumerate(years):
-        # CSV 범위 밖이면 경계값 사용(보수적)
-        y_key = min(max(year, min_y), max_y)
-        annual_pv_kwh = pv_kwh_by_year[y_key]
+        # 연도별 PV kWh (외삽 전략 함수로부터)
+        annual_pv_kwh = pv_value_fn(year)
         pv_surplus_y  = annual_pv_kwh * (1 - self_use)
 
-        # 장비 성능 저하(선택)
+        # 장비 성능 저하 반영
         v2g_cap_y = base_target_v2g_kwh * ((1.0 - v2g_deg) ** i)
         # PV 잉여 중 V2G로 쓰는 비율 γ
         v2g_from_pv_y = pv_surplus_y * gamma
         # 실제 연간 V2G 방전량
         annual_v2g_kwh_y = min(v2g_cap_y, v2g_from_pv_y)
 
-        # 단가
+        # 단가 (cagr=0 이어도 OK — 여기선 kWh가 바뀌므로 수입이 달라짐)
         pv_price_y  = price_with_cagr(p["pv_base_price"], p["tariff_base_year"], year, p["price_cagr"])
         v2g_price_y = pv_price_y + p["v2g_price_gap"]
 
@@ -254,14 +310,12 @@ def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dic
         om_costs.append(om_y)
         capex_list.append(capex_y)
 
-    # 보고용 평균(탄소절감량 계산에 사용)
-    avg_pv_surplus_kwh = np.mean([
-        pv_kwh_by_year[min(max(y, min_y), max_y)] * (1 - self_use) for y in years
-    ])
+    # 보고용 평균
+    avg_pv_surplus_kwh = np.mean([pv_value_fn(y) * (1 - self_use) for y in years])
     avg_v2g_kwh = np.mean([
         min(
             base_target_v2g_kwh * ((1.0 - v2g_deg) ** i),
-            pv_kwh_by_year[min(max(y, min_y), max_y)] * (1 - self_use) * gamma
+            pv_value_fn(y) * (1 - self_use) * gamma
         )
         for i, y in enumerate(years)
     ])
@@ -279,7 +333,7 @@ def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dic
     }
 
 # =========================
-# 6) Streamlit App
+# 7) Streamlit App
 # =========================
 def main():
     st.title("V2G + PV 경제성 (CSV 일사합 기반, 연도별 V2G 가변)")
@@ -317,7 +371,7 @@ def main():
     params["v2g_operating_days"] = st.sidebar.number_input(
         "연간 운영일 수", value=params["v2g_operating_days"], step=10, min_value=1, max_value=365
     )
-    # V2G 운영 정책(연동 파라미터)
+    # V2G 운영 정책
     params["v2g_share_of_pv_surplus"] = st.sidebar.slider("PV 잉여 중 V2G 활용 비율 γ", 0.0, 1.0, params["v2g_share_of_pv_surplus"], 0.05)
     params["v2g_yearly_degradation"]  = st.sidebar.number_input("V2G 연차별 성능저하율", value=params["v2g_yearly_degradation"], min_value=0.0, max_value=0.2, step=0.01, format="%.2f")
 
@@ -331,15 +385,29 @@ def main():
 
     # --- CSV 로드 & PV 연간 kWh 계산 ---
     irr_df = load_irradiance_csv(csv_path)
-    pv_by_year, area_m2, PR_used = compute_pv_kwh_by_year(
+    pv_by_year_raw, area_m2, PR_used = compute_pv_kwh_by_year(
         irr_df,
         panel_width_m=panel_w, panel_height_m=panel_h, n_modules=int(n_modules),
         pr_base=pr_base, availability=availability, soiling=soiling, inv_eff=inv_eff,
         pr_manual=pr_manual
     )
 
+    # --- CSV 범위 밖 외삽 전략 선택 ---
+    strategy = st.sidebar.selectbox(
+        "CSV 범위 밖 외삽 전략",
+        options=["trend", "clamp", "mean5", "repeat"],
+        format_func=lambda s: {
+            "trend": "선형 추세 외삽(기본)",
+            "clamp": "경계값 고정(보수적)",
+            "mean5": "최근 5년 평균",
+            "repeat":"주기 반복"
+        }[s],
+        index=0
+    )
+    pv_value_fn = make_pv_forecaster_from_series(pv_by_year_raw, strategy=strategy)
+
     # --- 현금흐름 계산 ---
-    cf = build_yearly_cashflows_from_csv(install_year, current_year, params, pv_by_year)
+    cf = build_yearly_cashflows_from_csv(install_year, current_year, params, pv_value_fn)
     years = cf["years"]; yearly_cash = cf["yearly_cash"]; cumulative = cf["cumulative"]
 
     # 손익분기 연도
@@ -430,8 +498,8 @@ def main():
     # 참고 정보
     st.caption(
         f"총 모듈 면적: {area_m2:.1f} m² | 사용 PR: {PR_used:.3f} | "
-        f"CSV 연도 범위: {min(pv_by_year.keys())}~{max(pv_by_year.keys())} | "
-        f"V2G 비율 γ: {params['v2g_share_of_pv_surplus']:.2f}"
+        f"CSV 연도 범위: {min(pv_by_year_raw.keys())}~{max(pv_by_year_raw.keys())} | "
+        f"외삽 전략: {strategy}"
     )
 
 if __name__ == "__main__":
