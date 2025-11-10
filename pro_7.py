@@ -202,26 +202,8 @@ def load_smp_series(csv_path: str) -> pd.Series:
 
 
 def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, cagr: float) -> pd.Series:
-    """대표연도 시계열을 해당 연도로 스케일(가격 × (1+CAGR)^(Δt))"""
     factor = (1.0 + cagr) ** (year - base_year)
-    s = base_series.copy()
-
-    # 안전하게 연도 교체 (윤년 문제 방지)
-    def safe_shift_year(ts):
-        try:
-            return ts.replace(year=year)
-        except ValueError:
-            # 윤년일 경우 → 2월 28일로 대체
-            if ts.month == 2 and ts.day == 29:
-                return ts.replace(year=year, day=28)
-            else:
-                # 그래도 에러 시 그냥 날짜 문자열로 재생성
-                return pd.to_datetime(f"{year}-{ts.month:02d}-{min(ts.day,28):02d} {ts.hour:02d}:{ts.minute:02d}", errors="coerce")
-
-    s.index = s.index.map(safe_shift_year)
-    s = s[~s.index.isna()]
-    s = s.sort_index()
-    return s * factor
+    return base_series * factor
 
 # =========================
 # 5) 시간 분해: PV·V2G 시리즈 만들기
