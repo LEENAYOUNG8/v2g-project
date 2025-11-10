@@ -9,6 +9,7 @@ import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+import logging
 
 # -----------------------------
 # 상수
@@ -491,7 +492,7 @@ def main():
     smp_series = None
     if use_smp:
         try:
-            print( f' Loading SMP form:{smp_csv_path}') 
+            logging.info( f' Loading SMP form:{smp_csv_path}') 
             smp_series = load_smp_series(smp_csv_path)
         except Exception as e:
             st.warning(f"SMP 읽기 실패: {e}\n→ SMP 미사용 방식으로 대체 계산합니다.")
@@ -499,7 +500,7 @@ def main():
             use_smp = False
 
     # ── 현금흐름 계산 ──
-    print( f"현금흐름계산")
+    logging.info( f"현금흐름계산")
     cf = build_yearly_cashflows_from_csv(
         install_year, current_year, params, pv_by_year,
         smp_base_series=smp_series if use_smp else None,
@@ -511,7 +512,7 @@ def main():
     cumulative  = cf["cumulative"]
 
     # 손익분기 연도
-    print( f"손익분기 연도")
+    logging.info( f"손익분기 연도")
     break_even_year = next((y for y, cum in zip(years, cumulative) if cum >= 0), None)
 
     # 탄소절감량(kgCO2e) – 평균 연간 kWh로 추정
@@ -520,13 +521,13 @@ def main():
     total_co2_kg       = total_clean_kwh * EMISSION_FACTOR_KG_PER_KWH
 
     # 재무지표
-    print(f'재무지표')
+    logging.info(f'재무지표')
     npv_val = npv(discount_rate, yearly_cash)
     irr_val = irr_bisection(yearly_cash)
     dpp_val = discounted_payback(yearly_cash, discount_rate)
 
     # --- KPI (1행: 재무) ---
-    print(f'KPI 재무')
+    logging.info(f'KPI 재무')
     k1, k2, k3, sp1 = st.columns([1, 1, 1, 0.4])
     with k1:
         st.markdown('<div style="font-size:0.85rem;color:#666;">NPV</div>', unsafe_allow_html=True)
@@ -542,7 +543,7 @@ def main():
         st.markdown(f'<div style="font-size:1.3rem;font-weight:600;">{dpp_txt}</div>', unsafe_allow_html=True)
 
     # --- KPI (2행: 시스템/환경) ---
-    print(f'KPI 시스템')
+    logging.info(f'KPI 시스템')
     r1, r2, r3, sp2 = st.columns([1, 1, 1, 0.4])
     with r1:
         be_text = f"{break_even_year}년" if break_even_year else "아직 미도달"
@@ -556,7 +557,7 @@ def main():
         st.markdown(f'<div style="font-size:1.3rem;font-weight:600;">{total_co2_kg:,.0f} kgCO₂e</div>', unsafe_allow_html=True)
 
     # --- 그래프: 누적 라인 ---
-    print(f'누적라인')
+    logging.info(f'누적라인')
     st.subheader("누적 현금흐름")
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(years, cumulative, marker="o", linewidth=2.2)
@@ -570,7 +571,7 @@ def main():
     st.pyplot(fig)
 
     # --- 그래프: 연도별 누적 막대 ---
-    print(f'그래프 누적 막대')
+    logging.info(f'그래프 누적 막대')
     st.subheader("연도별 순현금흐름 (누적)")
     x_labels = [f"{y}년" for y in years]
     colors = ["red" if cum < 0 else "royalblue" for cum in cumulative]
@@ -589,7 +590,7 @@ def main():
     st.plotly_chart(bar_fig, width='stretch')
 
     # --- 표: 연도별 금액 ---
-    print(f'연도별 금액')
+    logging.info(f'연도별 금액')
     st.subheader("연도별 금액 확인")
     df_table = pd.DataFrame({
         "연도": years,
@@ -603,7 +604,7 @@ def main():
     st.dataframe(df_table, width='stretch')
 
     # 참고 정보
-    print(f'참고 정보')
+    logging.info(f'참고 정보')
     st.caption(
         f"총 모듈 면적: {area_m2:.1f} m² | 사용 PR: {PR_used:.3f} "
         f"| CSV(일사합) 연도 범위: {min(pv_by_year.keys())}~{max(pv_by_year.keys())} "
