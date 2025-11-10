@@ -144,6 +144,9 @@ def compute_pv_kwh_by_year(irr_df: pd.DataFrame,
     out = dict(zip(irr_df["year"].astype(int).tolist(), pv_kwh.astype(float).tolist()))
     return out, area_m2, PR
 
+def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, cagr: float) -> pd.Series:
+    factor = (1.0 + cagr) ** (year - base_year)
+    return base_series * factor
 # =========================
 # 4) SMP(시간대별 단가) 처리
 # =========================
@@ -200,10 +203,6 @@ def load_smp_series(csv_path: str) -> pd.Series:
 
     return s  # Series(dt → SMP[원/kWh])
 
-
-def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, cagr: float) -> pd.Series:
-    factor = (1.0 + cagr) ** (year - base_year)
-    return base_series * factor
 
 # =========================
 # 5) 시간 분해: PV·V2G 시리즈 만들기
@@ -357,7 +356,7 @@ def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dic
         pv_export = pv_export_series(pv_hourly, self_use)
 
         # V2G 시간 분해
-        
+    
 
             v2g_hourly = build_v2g_hourly_series(
                 year,
