@@ -346,62 +346,62 @@ def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dic
 
 # V2G 연간 kWh “상한”은 동일하지만, 시간대 배치에 따라 '수익'이 달라짐.
 # 시간단 SMP가 없다면 기존 평균단가 방식으로 계산.
-for i, year in enumerate(years):
+    for i, year in enumerate(years):
     # PV 연간 kWh (범위 밖은 경계값)
-    y_key = min(max(year, min_y), max_y)
-    annual_pv_kwh = pv_kwh_by_year[y_key]
+        y_key = min(max(year, min_y), max_y)
+        annual_pv_kwh = pv_kwh_by_year[y_key]
 
     # 연간 PV → 시간분해 → 자가소비 반영
-    pv_hourly = build_pv_hourly_series(year, annual_pv_kwh)
-    pv_export = pv_export_series(pv_hourly, self_use)
+        pv_hourly = build_pv_hourly_series(year, annual_pv_kwh)
+        pv_export = pv_export_series(pv_hourly, self_use)
 
     # --- SMP 단가 존재 시 ---
-    if smp_base_series is not None:
+        if smp_base_series is not None:
         # CAGR 반영 (윤년 오류 방지 버전)
-        def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, cagr: float) -> pd.Series:
-            factor = (1.0 + cagr) ** (year - base_year)
-            return base_series * factor
+            def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, cagr: float) -> pd.Series:
+                factor = (1.0 + cagr) ** (year - base_year)
+                return base_series * factor
 
-        smp_y = escalate_series_by_cagr(smp_base_series, smp_base_year, year, p["price_cagr"])
+            smp_y = escalate_series_by_cagr(smp_base_series, smp_base_year, year, p["price_cagr"])
 
-        v2g_hourly = build_v2g_hourly_series(
-            year,
-            p["num_v2g_chargers"],
-            p["v2g_daily_discharge_per_charger_kwh"],
-            p["v2g_operating_days"],
-            p["degradation_factor"],
-            price_weighted=use_price_weighted_v2g,
-            smp_for_year=smp_y if use_price_weighted_v2g else None,
-        )
+            v2g_hourly = build_v2g_hourly_series(
+                year,
+                p["num_v2g_chargers"],
+                p["v2g_daily_discharge_per_charger_kwh"],
+                p["v2g_operating_days"],
+                p["degradation_factor"],
+                price_weighted=use_price_weighted_v2g,
+                smp_for_year=smp_y if use_price_weighted_v2g else None,
+            )
 
-        total_rev_y, pv_rev_y = revenue_from_smp(smp_y, pv_export, v2g_hourly)
-        v2g_rev_y = total_rev_y - pv_rev_y
+            total_rev_y, pv_rev_y = revenue_from_smp(smp_y, pv_export, v2g_hourly)
+            v2g_rev_y = total_rev_y - pv_rev_y
 
     # --- SMP 단가가 없을 경우 평균단가 기반 계산 ---
-    else:
-        annual_pv_surplus_kwh = annual_pv_kwh * (1 - self_use)
-        daily_v2g_kwh = p["num_v2g_chargers"] * p["v2g_daily_discharge_per_charger_kwh"]
-        annual_v2g_kwh = daily_v2g_kwh * p["v2g_operating_days"] * p["degradation_factor"]
+        else:
+            annual_pv_surplus_kwh = annual_pv_kwh * (1 - self_use)
+            daily_v2g_kwh = p["num_v2g_chargers"] * p["v2g_daily_discharge_per_charger_kwh"]
+            annual_v2g_kwh = daily_v2g_kwh * p["v2g_operating_days"] * p["degradation_factor"]
 
-        pv_price_y = price_with_cagr(p["pv_base_price"], p["tariff_base_year"], year, p["price_cagr"])
-        v2g_price_y = pv_price_y + p["v2g_price_gap"]
+            pv_price_y = price_with_cagr(p["pv_base_price"], p["tariff_base_year"], year, p["price_cagr"])
+            v2g_price_y = pv_price_y + p["v2g_price_gap"]
 
-        pv_rev_y = annual_pv_surplus_kwh * pv_price_y
-        v2g_rev_y = annual_v2g_kwh * v2g_price_y
-        total_rev_y = pv_rev_y + v2g_rev_y
+            pv_rev_y = annual_pv_surplus_kwh * pv_price_y
+            v2g_rev_y = annual_v2g_kwh * v2g_price_y
+            total_rev_y = pv_rev_y + v2g_rev_y
 
     # --- 연간 현금흐름 계산 ---
-    om_y = annual_om_cost
-    capex_y = capex_total if i == 0 else 0.0
-    cf_y = total_rev_y - om_y - capex_y
-    cum += cf_y
+        om_y = annual_om_cost
+        capex_y = capex_total if i == 0 else 0.0
+        cf_y = total_rev_y - om_y - capex_y
+        cum += cf_y
 
-    yearly_cash.append(cf_y)
-    cumulative.append(cum)
-    pv_revenues.append(pv_rev_y)
-    v2g_revenues.append(v2g_rev_y)
-    om_costs.append(om_y)
-    capex_list.append(capex_y)
+        yearly_cash.append(cf_y)
+        cumulative.append(cum)
+        pv_revenues.append(pv_rev_y)
+        v2g_revenues.append(v2g_rev_y)
+        om_costs.append(om_y)
+        capex_list.append(capex_y)
 
     # 탄소절감 kWh는 평균치로(단순화)
     avg_pv_surplus_kwh = np.mean([pv_kwh_by_year[min(max(y, min_y), max_y)] * (1 - self_use) for y in years])
