@@ -591,7 +591,7 @@ def main():
         "O&M 비용(원)": cf["om_costs"],
         "CAPEX(원)": cf["capex_list"],
     })
-    st.dataframe(df_table, width='strecth')
+    st.dataframe(df_table, width='stretch')
 
     # 참고 정보
     st.caption(
