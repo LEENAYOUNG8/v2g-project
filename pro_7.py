@@ -214,7 +214,7 @@ def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, c
 # =========================
 def build_pv_hourly_series(year: int, annual_pv_kwh: float) -> pd.Series:
     """연간 kWh를 1시간 해상도로 분배(간단 월×시간 가중치)"""
-    idx = pd.date_range(f"{year}-01-01", f"{year+1}-01-01", freq="1H", tz="Asia/Seoul", inclusive="left")
+    idx = pd.date_range(f"{year}-01-01", f"{year+1}-01-01", freq="1h", tz="Asia/Seoul", inclusive="left")
     df = pd.DataFrame(index=idx)
 
     # 월별 가중치(예시). 필요하면 실제 월별 일사/발전 비중으로 교체
@@ -251,7 +251,7 @@ def build_v2g_hourly_series(year: int,
     기본은 선택한 시간대에 균등 분배.
     price_weighted=True면 같은 날 SMP 비례로 분배.
     """
-    idx = pd.date_range(f"{year}-01-01", f"{year+1}-01-01", freq="1H", tz="Asia/Seoul", inclusive="left")
+    idx = pd.date_range(f"{year}-01-01", f"{year+1}-01-01", freq="1h", tz="Asia/Seoul", inclusive="left")
     s = pd.Series(0.0, index=idx)
 
     E_day = num_chargers * kwh_per_charger_day * degradation
