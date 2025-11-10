@@ -578,7 +578,7 @@ def main():
                                text=f"손익분기 {break_even_year}년", showarrow=False, yanchor="bottom",
                                font=dict(color="green"))
     bar_fig.update_layout(title="연도별 순현금흐름 (누적)", yaxis=dict(tickformat=","), bargap=0.25)
-    st.plotly_chart(bar_fig, width=True)
+    st.plotly_chart(bar_fig, width='stretch')
 
     # --- 표: 연도별 금액 ---
     st.subheader("연도별 금액 확인")
@@ -591,7 +591,7 @@ def main():
         "O&M 비용(원)": cf["om_costs"],
         "CAPEX(원)": cf["capex_list"],
     })
-    st.dataframe(df_table, use_container_width=True)
+    st.dataframe(df_table, width='strecth')
 
     # 참고 정보
     st.caption(
