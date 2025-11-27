@@ -83,12 +83,12 @@ def won_formatter(x, pos):
 
 # =========================
 # 3) CSV → 연도별 PV kWh 계산 (일사합)
-#  (속도 개선: 캐싱)
 # =========================
 @st.cache_data(show_spinner=False)
 def load_irradiance_csv(csv_path: str) -> pd.DataFrame:
     """
     연도별 '일사합(MJ/m²)' CSV를 읽어 표준 컬럼으로 정리
+    (캐싱 적용)
     """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"CSV가 없음: {csv_path}")
@@ -148,12 +148,12 @@ def compute_pv_kwh_by_year(irr_df: pd.DataFrame,
 
 # =========================
 # 4) SMP(시간대별 단가) 처리
-#  (속도 개선: 캐싱)
 # =========================
 @st.cache_data(show_spinner=False)
 def load_smp_series(csv_path: str) -> pd.Series:
     """
     SMP.csv (기간, 01시~24시 ...) → 시간별 Series
+    (캐싱 적용)
     """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"SMP CSV가 없음: {csv_path}")
@@ -253,7 +253,7 @@ def build_pv_hourly_series(year: int, annual_pv_kwh: float) -> pd.Series:
 def pv_export_series(pv_hourly_kwh: pd.Series, self_use_ratio: float) -> pd.Series:
     return pv_hourly_kwh * (1.0 - self_use_ratio)
 
-# (속도 개선: V2G 시리즈 벡터화)
+# ---- 여기만 구조 개선 (벡터화) ----
 def build_v2g_hourly_series(year: int,
                             num_chargers: int,
                             kwh_per_charger_day: float,
@@ -264,7 +264,7 @@ def build_v2g_hourly_series(year: int,
                             smp_for_year: pd.Series|None=None) -> pd.Series:
     """
     하루 방전량을 특정 시간대로 분배. SMP가 있으면 그날 비싼 시간대에 더 배분.
-    (벡터화로 속도 개선)
+    (벡터화로 for-loop 부담 줄인 버전)
     """
     idx = pd.date_range(
         f"{year}-01-01", f"{year+1}-01-01",
@@ -274,7 +274,7 @@ def build_v2g_hourly_series(year: int,
 
     E_day = num_chargers * kwh_per_charger_day * degradation
 
-    # 운영 날짜
+    # 운영하는 날짜 리스트
     all_days = pd.date_range(
         f"{year}-01-01", f"{year}-12-31",
         freq="D", tz="Asia/Seoul"
@@ -285,7 +285,7 @@ def build_v2g_hourly_series(year: int,
     if H == 0 or len(op_days) == 0:
         return s
 
-    # 각 운영일에 대해 방전 시간대 index 생성 (flatten 형태)
+    # (운영일 수 × 방전시간대 수) 만큼의 타임스탬프 생성
     hours_ts = []
     for d in op_days:
         for h in discharge_hours:
@@ -294,7 +294,7 @@ def build_v2g_hourly_series(year: int,
 
     # SMP 기반 가중치
     if price_weighted and smp_for_year is not None:
-        # 원래 코드의 nearest 로직을 유지하면서 벡터화
+        # 원래 코드에서 nearest 사용하던 동작을 벡터화
         prices_flat = smp_for_year.reindex(hours_ts, method="nearest").to_numpy(dtype=float)
         prices = prices_flat.reshape(len(op_days), H)
 
@@ -304,14 +304,15 @@ def build_v2g_hourly_series(year: int,
     else:
         weights = np.ones((len(op_days), H), dtype=float) / H
 
-    # 일별 에너지를 시간대로 분배
-    energy_matrix = E_day * weights  # shape: (운영일 수, H)
+    # 일별 에너지를 시간대별로 분배 (행:날짜, 열:시간대)
+    energy_matrix = E_day * weights  # shape: (len(op_days), H)
 
-    # Series로 한 번에 더하기
+    # Series로 flatten해서 한 번에 더하기
     s_add = pd.Series(energy_matrix.ravel(), index=hours_ts)
     s = s.add(s_add.groupby(s_add.index).sum(), fill_value=0.0)
 
     return s
+# ---------------------------------
 
 def revenue_from_smp(smp_price: pd.Series,
                      pv_export: pd.Series,
