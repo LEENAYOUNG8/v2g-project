@@ -452,8 +452,8 @@ def main():
     pr_base, availability, soiling, inv_eff = 0.82, 0.98, 0.02, 0.97
 
     st.sidebar.header("시뮬레이션/정산 설정")
-    install_year = st.sidebar.number_input("설치 연도", value=2025, step=1)
-    current_year = st.sidebar.number_input("마지막 연도", value=2045, step=1, min_value=install_year)
+    install_year = st.sidebar.number_input("설치 연도", value=2005, step=1)
+    current_year = st.sidebar.number_input("마지막 연도", value=2015, step=1, min_value=install_year)
 
     params = make_v2g_model_params()
     params["num_v2g_chargers"] = st.sidebar.number_input(
