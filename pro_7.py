@@ -83,7 +83,9 @@ def won_formatter(x, pos):
 
 # =========================
 # 3) CSV → 연도별 PV kWh 계산 (일사합)
+#  (속도 개선: 캐싱)
 # =========================
+@st.cache_data(show_spinner=False)
 def load_irradiance_csv(csv_path: str) -> pd.DataFrame:
     """
     연도별 '일사합(MJ/m²)' CSV를 읽어 표준 컬럼으로 정리
@@ -146,7 +148,9 @@ def compute_pv_kwh_by_year(irr_df: pd.DataFrame,
 
 # =========================
 # 4) SMP(시간대별 단가) 처리
+#  (속도 개선: 캐싱)
 # =========================
+@st.cache_data(show_spinner=False)
 def load_smp_series(csv_path: str) -> pd.Series:
     """
     SMP.csv (기간, 01시~24시 ...) → 시간별 Series
@@ -249,6 +253,7 @@ def build_pv_hourly_series(year: int, annual_pv_kwh: float) -> pd.Series:
 def pv_export_series(pv_hourly_kwh: pd.Series, self_use_ratio: float) -> pd.Series:
     return pv_hourly_kwh * (1.0 - self_use_ratio)
 
+# (속도 개선: V2G 시리즈 벡터화)
 def build_v2g_hourly_series(year: int,
                             num_chargers: int,
                             kwh_per_charger_day: float,
@@ -259,47 +264,52 @@ def build_v2g_hourly_series(year: int,
                             smp_for_year: pd.Series|None=None) -> pd.Series:
     """
     하루 방전량을 특정 시간대로 분배. SMP가 있으면 그날 비싼 시간대에 더 배분.
+    (벡터화로 속도 개선)
     """
-    idx = pd.date_range(f"{year}-01-01", f"{year+1}-01-01",
-                        freq="1H", tz="Asia/Seoul", inclusive="left")
+    idx = pd.date_range(
+        f"{year}-01-01", f"{year+1}-01-01",
+        freq="1H", tz="Asia/Seoul", inclusive="left"
+    )
     s = pd.Series(0.0, index=idx)
 
     E_day = num_chargers * kwh_per_charger_day * degradation
-    days = pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D", tz="Asia/Seoul")
 
-    ops_mask = pd.Series(0, index=days)
-    ops_mask.iloc[:min(operating_days, len(ops_mask))] = 1
+    # 운영 날짜
+    all_days = pd.date_range(
+        f"{year}-01-01", f"{year}-12-31",
+        freq="D", tz="Asia/Seoul"
+    )
+    op_days = all_days[:min(operating_days, len(all_days))]
 
     H = len(discharge_hours)
-    for day, active in ops_mask.items():
-        if active != 1 or H == 0:
-            continue
+    if H == 0 or len(op_days) == 0:
+        return s
 
-        hours_ts = [day + pd.Timedelta(hours=h) for h in discharge_hours]
+    # 각 운영일에 대해 방전 시간대 index 생성 (flatten 형태)
+    hours_ts = []
+    for d in op_days:
+        for h in discharge_hours:
+            hours_ts.append(d + pd.Timedelta(hours=h))
+    hours_ts = pd.to_datetime(hours_ts).tz_convert("Asia/Seoul")
 
-        if price_weighted and smp_for_year is not None:
-            prices = []
-            for t in hours_ts:
-                if t in smp_for_year.index:
-                    val = smp_for_year.loc[t]
-                    # 여기서 Series가 나올 수 있으니 첫 번째 값만
-                    if isinstance(val, pd.Series):
-                        val = val.iloc[0]
-                    prices.append(float(val))
-                else:
-                    nearest = smp_for_year.index.get_indexer([t], method="nearest")
-                    val = smp_for_year.iloc[nearest[0]]
-                    prices.append(float(val))
-            prices = np.array(prices, dtype=float)
-            weights = prices / prices.sum() if prices.sum() > 0 else np.ones_like(prices) / len(prices)
-        else:
-            weights = np.ones(H) / H
+    # SMP 기반 가중치
+    if price_weighted and smp_for_year is not None:
+        # 원래 코드의 nearest 로직을 유지하면서 벡터화
+        prices_flat = smp_for_year.reindex(hours_ts, method="nearest").to_numpy(dtype=float)
+        prices = prices_flat.reshape(len(op_days), H)
 
-        for t, w in zip(hours_ts, weights):
-            if t not in s.index:
-                nearest = s.index.get_indexer([t], method="nearest")
-                t = s.index[nearest[0]]
-            s.loc[t] += E_day * float(w)
+        price_sum = prices.sum(axis=1, keepdims=True)
+        price_sum[price_sum == 0] = 1.0
+        weights = prices / price_sum
+    else:
+        weights = np.ones((len(op_days), H), dtype=float) / H
+
+    # 일별 에너지를 시간대로 분배
+    energy_matrix = E_day * weights  # shape: (운영일 수, H)
+
+    # Series로 한 번에 더하기
+    s_add = pd.Series(energy_matrix.ravel(), index=hours_ts)
+    s = s.add(s_add.groupby(s_add.index).sum(), fill_value=0.0)
 
     return s
 
