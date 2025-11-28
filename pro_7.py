@@ -20,20 +20,18 @@ MJ_PER_M2_TO_KWH_PER_M2     = 0.27778 # MJ/m² → kWh/m²
 
 
 # =========================
-# 1) 한글 폰트 (캐싱)
+# 1) 한글 폰트
 # =========================
-@st.cache_resource
-def init_korean_font():
+def set_korean_font():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     font_path = os.path.join(base_dir, "NanumGothic.ttf")
     if os.path.exists(font_path):
         fm.fontManager.addfont(font_path)
         plt.rcParams["font.family"] = "NanumGothic"
     plt.rcParams["axes.unicode_minus"] = False
-    return True
 
 
-_ = init_korean_font()
+set_korean_font()
 
 
 # =========================
@@ -160,33 +158,6 @@ def compute_pv_kwh_by_year(irr_df: pd.DataFrame,
     return out, area_m2, PR
 
 
-# === 새로 추가: 일사량 CSV + PV 연간 발전량 캐시 ===
-@st.cache_data
-def get_pv_kwh_by_year_cached(
-    irr_csv_path: str,
-    panel_w: float,
-    panel_h: float,
-    n_modules: int,
-    pr_base: float,
-    availability: float,
-    soiling: float,
-    inv_eff: float,
-    pr_manual: float | None,
-):
-    irr_df = load_irradiance_csv(irr_csv_path)
-    return compute_pv_kwh_by_year(
-        irr_df,
-        panel_width_m=panel_w,
-        panel_height_m=panel_h,
-        n_modules=int(n_modules),
-        pr_base=pr_base,
-        availability=availability,
-        soiling=soiling,
-        inv_eff=inv_eff,
-        pr_manual=pr_manual,
-    )
-
-
 # =========================
 # 4) SMP(시간대별 단가) 처리
 # =========================
@@ -237,12 +208,6 @@ def load_smp_series(csv_path: str) -> pd.Series:
     if s.index.tz is None:
         s.index = s.index.tz_localize("Asia/Seoul", nonexistent="shift_forward", ambiguous="NaT")
     return s
-
-
-# === 새로 추가: SMP 시계열 캐시 ===
-@st.cache_data
-def get_smp_series_cached(smp_csv_path: str) -> pd.Series:
-    return load_smp_series(smp_csv_path)
 
 
 def escalate_series_by_cagr(base_series: pd.Series, base_year: int, year: int, cagr: float) -> pd.Series:
@@ -667,30 +632,23 @@ def main():
         "할인율(연)", value=0.08, min_value=0.0, max_value=0.5, step=0.005, format="%.3f"
     )
 
-    # === 캐시된 PV 연간 발전량 계산 사용 ===
-    pv_by_year, area_m2, PR_used = get_pv_kwh_by_year_cached(
-        irr_csv_path,
-        panel_w,
-        panel_h,
-        int(n_modules),
-        pr_base,
-        availability,
-        soiling,
-        inv_eff,
-        pr_manual,
+    irr_df = load_irradiance_csv(irr_csv_path)
+    pv_by_year, area_m2, PR_used = compute_pv_kwh_by_year(
+        irr_df,
+        panel_width_m=panel_w, panel_height_m=panel_h, n_modules=int(n_modules),
+        pr_base=pr_base, availability=availability, soiling=soiling, inv_eff=inv_eff,
+        pr_manual=pr_manual
     )
 
-    # === 캐시된 SMP 시계열 사용 ===
     smp_series = None
     if use_smp:
         try:
-            smp_series = get_smp_series_cached(smp_csv_path)
+            smp_series = load_smp_series(smp_csv_path)
         except Exception as e:
             st.warning(f"SMP 읽기 실패: {e}\n→ SMP 미사용 방식으로 대체 계산합니다.")
             smp_series = None
             use_smp = False
 
-    # 연도별 현금흐름 계산 (여기는 아직 캐싱 X)
     cf = build_yearly_cashflows_from_csv(
         install_year, current_year, params, pv_by_year,
         smp_base_series=smp_series if use_smp else None,
@@ -746,7 +704,7 @@ def main():
     ax.grid(True, linestyle="--", alpha=0.4)
     ax.set_title("V2G + PV 누적 현금흐름" + (" (SMP 정산)" if use_smp else ""))
     if break_even_year is not None:
-        ax.axvline(break_even_year, color="green", linestyle="--", alpha="0.7")
+        ax.axvline(break_even_year, color="green", linestyle="--", alpha=0.7)
         ax.text(break_even_year, 0, f"손익분기 {break_even_year}", color="green",
                 va="bottom", ha="left")
     st.pyplot(fig)
