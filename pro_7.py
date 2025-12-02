@@ -476,7 +476,7 @@ def build_yearly_cashflows_from_csv(install_year: int, current_year: int, p: dic
 # 8) Streamlit App
 # =========================
 def main():
-   st.title("V2G 투자 대비 연도별/누적 현금흐름 (CSV 일사합 + 시간대별 SMP 옵션)")
+   st.title("Solar-Driven V2G Economics Platform")
 
 
    base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -502,7 +502,7 @@ def main():
 
    st.sidebar.header("시뮬레이션/정산 설정")
    install_year = st.sidebar.number_input("설치 연도", value=2025, step=1)
-   current_year = st.sidebar.number_input("마지막 연도", value=2045, step=1, min_value=install_year)
+   current_year = st.sidebar.number_input("마지막 연도", value=2040, step=1, min_value=install_year)
 
 
    params = make_v2g_model_params()
